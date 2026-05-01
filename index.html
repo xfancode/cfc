@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>CFC</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1c1b1f;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: #2b2930;
+            border-radius: 32px;
+            padding: 30px;
+            width: 100%;
+            max-width: 900px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #49454f;
+        }
+        h1 {
+            color: #d0bcff;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #4f378b;
+            border: none;
+            border-radius: 40px;
+            padding: 8px 20px;
+            font-weight: 500;
+            color: #eaddff;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover {
+            background: #6750a4;
+            transform: scale(1.02);
+        }
+        .path-bar {
+            background: #1c1b1f;
+            padding: 8px 16px;
+            border-radius: 40px;
+            color: #b0c4de;
+            font-size: 13px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .file-list {
+            background: #1c1b1f;
+            border-radius: 24px;
+            padding: 15px;
+            min-height: 300px;
+            max-height: 450px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            border: 1px solid #49454f;
+        }
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #49454f;
+            color: #e6e1e5;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .list-item:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .item-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            word-break: break-all;
+        }
+        .item-size {
+            color: #b0c4de;
+            font-size: 12px;
+        }
+        .folder {
+            color: #ffd966;
+        }
+        .empty {
+            color: #b0c4de;
+            text-align: center;
+            padding: 30px;
+            font-style: italic;
+        }
+        .menu {
+            position: relative;
+            display: inline-block;
+        }
+        .menu-content {
+            display: none;
+            position: absolute;
+            background: #2b2930;
+            min-width: 160px;
+            border-radius: 16px;
+            z-index: 1;
+            border: 1px solid #49454f;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+        .menu-content button {
+            background: transparent;
+            border-radius: 0;
+            width: 100%;
+            text-align: left;
+            padding: 10px 16px;
+        }
+        .menu-content button:hover {
+            background: #4f378b;
+        }
+        .menu.active .menu-content {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Compressed Folder Creator</h1>
+    <div class="toolbar">
+        <div class="buttons">
+            <div class="menu" id="addMenu">
+                <button id="addBtn">+</button>
+                <div class="menu-content">
+                    <button id="addFileBtn">Файл</button>
+                    <button id="addFolderBtn">Папка</button>
+                </div>
+            </div>
+            <button id="createZipBtn">Экспорт</button>
+        </div>
+        <div class="path-bar" id="pathDisplay">/</div>
+    </div>
+    
+    <div id="fileList" class="file-list">
+        <div class="empty">Корневая папка пуста</div>
+    </div>
+</div>
+
+<script>
+    let fs = {
+        type: 'dir',
+        children: {}
+    };
+    let currentPath = [];
+
+    function getCurrentNode() {
+        let node = fs;
+        for (let p of currentPath) {
+            node = node.children[p];
+            if (!node) break;
+        }
+        return node;
+    }
+
+    function render() {
+        const container = document.getElementById('fileList');
+        const pathDisplay = document.getElementById('pathDisplay');
+        pathDisplay.textContent = '/' + currentPath.join('/');
+        
+        const node = getCurrentNode();
+        if (!node || node.type !== 'dir') {
+            container.innerHTML = '<div class="empty">Текущая папка не найдена</div>';
+            return;
+        }
+        
+        const entries = Object.entries(node.children);
+        if (entries.length === 0) {
+            container.innerHTML = '<div class="empty"></div>';
+            return;
+        }
+        
+        let html = '';
+        for (let [name, child] of entries) {
+            if (child.type === 'dir') {
+                html += `
+                    <div class="list-item" data-type="dir" data-name="${escapeHtml(name)}">
+                        <div class="item-name folder">${escapeHtml(name)}</div>
+                        <div class="item-size">папка</div>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="list-item" data-type="file" data-name="${escapeHtml(name)}">
+                        <div class="item-name">${escapeHtml(name)}</div>
+                        <div class="item-size">${formatSize(child.size)}</div>
+                    </div>
+                `;
+            }
+        }
+        container.innerHTML = html;
+        
+        document.querySelectorAll('.list-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const type = el.dataset.type;
+                const name = el.dataset.name;
+                if (type === 'dir') {
+                    currentPath.push(name);
+                    render();
+                }
+            });
+        });
+    }
+    
+    function formatSize(bytes) {
+        if (!bytes) return '0 Б';
+        const k = 1024;
+        const sizes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    function escapeHtml(str) {
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+    
+    function addFile() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.onchange = async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            const node = getCurrentNode();
+            if (!node || node.type !== 'dir') return;
+            
+            for (const file of files) {
+                const arrayBuffer = await file.arrayBuffer();
+                node.children[file.name] = {
+                    type: 'file',
+                    name: file.name,
+                    size: file.size,
+                    data: arrayBuffer
+                };
+            }
+            render();
+        };
+        input.click();
+    }
+    
+    function addFolder() {
+        const folderName = prompt('Введите имя папки:');
+        if (!folderName || folderName.trim() === '') return;
+        const node = getCurrentNode();
+        if (!node || node.type !== 'dir') return;
+        if (node.children[folderName]) {
+            alert('Папка с таким именем уже существует');
+            return;
+        }
+        node.children[folderName] = {
+            type: 'dir',
+            children: {}
+        };
+        render();
+    }
+    
+    function goBack() {
+        if (currentPath.length > 0) {
+            currentPath.pop();
+            render();
+        }
+    }
+    
+    async function createZipAndDownload() {
+        const zip = new JSZip();
+        
+        function addToZip(zipFolder, node, pathArr) {
+            for (let [name, child] of Object.entries(node.children)) {
+                if (child.type === 'dir') {
+                    const subFolder = zipFolder.folder(name);
+                    addToZip(subFolder, child, [...pathArr, name]);
+                } else {
+                    const blob = new Blob([child.data], { type: 'application/octet-stream' });
+                    zipFolder.file(name, blob);
+                }
+            }
+        }
+        
+        addToZip(zip, fs, []);
+        
+        const randomNum = Math.floor(Math.random() * 90000 + 10000);
+        const filename = `${randomNum}.zip`;
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert(`Папка ${filename} скачана.`);
+    }
+    
+    const toolbar = document.querySelector('.buttons');
+    const backBtn = document.createElement('button');
+    backBtn.innerHTML = '‹';
+    backBtn.onclick = goBack;
+    toolbar.insertBefore(backBtn, document.getElementById('addMenu'));
+    
+    const addMenu = document.getElementById('addMenu');
+    const addBtn = document.getElementById('addBtn');
+    addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addMenu.classList.toggle('active');
+    });
+    document.addEventListener('click', () => addMenu.classList.remove('active'));
+    
+    document.getElementById('addFileBtn').addEventListener('click', () => {
+        addMenu.classList.remove('active');
+        addFile();
+    });
+    document.getElementById('addFolderBtn').addEventListener('click', () => {
+        addMenu.classList.remove('active');
+        addFolder();
+    });
+    document.getElementById('createZipBtn').addEventListener('click', createZipAndDownload);
+    
+    render();
+</script>
+</body>
+</html>
